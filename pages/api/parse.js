@@ -78,8 +78,7 @@ export default async function handler(req, res) {
 
     const genData = await genRes.json()
     const generated = genData.content.map(function(i) { return i.text || '' }).join('')
-    var totalCost = await logUsage('parse', parsed.procedure_key, inTok + (genData.usage?.input_tokens || 0), outTok + (genData.usage?.output_tokens || 0))
-    await checkAndSendAlert(totalCost)
+   totalCost = await logUsage('parse', parsed.procedure_key, inTok + (genData.usage?.input_tokens || 0), outTok + (genData.usage?.output_tokens || 0))
     return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: {}, has_template: false, generated: generated })
   }
 
