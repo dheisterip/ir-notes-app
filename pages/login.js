@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { useRouter } from 'next/router'
 
 export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
 
   const handleLogin = async () => {
     if (!password) return
@@ -18,10 +16,16 @@ export default function Login() {
         body: JSON.stringify({ password }),
       })
       const data = await res.json()
-      if (res.ok) { router.push('/') }
-      else { setError(data.error || 'Login failed') }
-    } catch { setError('Network error. Please try again.') }
-    setLoading(false)
+      if (res.ok) {
+        window.location.href = '/'
+      } else {
+        setError(data.error || 'Login failed')
+        setLoading(false)
+      }
+    } catch {
+      setError('Network error. Please try again.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -47,9 +51,9 @@ export default function Login() {
         <button
           onClick={handleLogin}
           disabled={loading || !password}
-          style={{ width: '100%', padding: 11, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, marginTop: 4, opacity: loading || !password ? 0.6 : 1 }}
+          style={{ width: '100%', padding: 11, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 500, marginTop: 4, opacity: loading || !password ? 0.6 : 1, cursor: 'pointer' }}
         >
-          {loading ? 'Signing in…' : 'Sign In'}
+          {loading ? 'Signing in...' : 'Sign In'}
         </button>
       </div>
     </div>
