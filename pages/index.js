@@ -61,28 +61,44 @@ export default function IRApp() {
   var [newRaw, setNewRaw] = useState('')
   var [newIdeal, setNewIdeal] = useState('')
   var [expandedEx, setExpandedEx] = useState(null)
+  var [saveStatus, setSaveStatus] = useState('')
+  var [syncing, setSyncing] = useState(false)
 
-  useEffect(function() {
-    // Check role from cookie/session
+  function loadData() {
+    setSyncing(true)
     fetch('/api/data')
       .then(function(r) { return r.json() })
       .then(function(d) {
-        setShared(d.shared); setLocalShared(d.shared)
-        setTemplates(d.templates); setLocalTemplates(d.templates)
-        setTraining(d.training || {}); setLoaded(true)
+        setShared(d.shared || DEFAULT_SHARED)
+        setLocalShared(d.shared || DEFAULT_SHARED)
+        setTemplates(d.templates || DEFAULT_TEMPLATES)
+        setLocalTemplates(d.templates || DEFAULT_TEMPLATES)
+        setTraining(d.training || {})
+        setSyncing(false)
       })
-      .catch(function() {
-        setShared(DEFAULT_SHARED); setLocalShared(DEFAULT_SHARED)
-        setTemplates(DEFAULT_TEMPLATES); setLocalTemplates(DEFAULT_TEMPLATES)
-        setLoaded(true)
-      })
-    // Check if admin by trying admin endpoint
+      .catch(function() { setSyncing(false) })
+  }
+
+  useEffect(function() {
+    loadData()
     fetch('/api/admin?action=settings').then(function(r) { if (r.ok) setIsAdmin(true) }).catch(function() {})
   }, [])
 
-  var saveData = useCallback(function(updates) {
-    return fetch('/api/data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) })
+  var saveData = useCallback(function(updates, onSuccess) {
+    return fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).then(function(r) {
+      if (r.ok) { if (onSuccess) onSuccess() }
+      else { setSaveStatus('error') }
+    }).catch(function() { setSaveStatus('error') })
   }, [])
+
+  var showSaved = function() {
+    setSaveStatus('saved')
+    setTimeout(function() { setSaveStatus('') }, 2500)
+  }
 
   var regenNote = useCallback(function(v, key, sh) {
     var tmpl = templates[key]
@@ -100,14 +116,9 @@ export default function IRApp() {
       setSelectedKey(data.procedure_key)
       setHasTemplate(data.has_template !== false)
       setVars(data.variables || {})
-      if (data.no_examples) {
-        setGenerated('No training examples found for this procedure. Add examples in the Training tab, then try again.')
-      } else if (data.generated) {
-        setGenerated(data.generated)
-      } else if (data.has_template !== false) {
-        var tmpl = templates[data.procedure_key]
-        setGenerated(tmpl ? fillTemplate(tmpl.template, data.variables || {}, shared) : 'No template found.')
-      }
+      if (data.no_examples) setGenerated('No training examples found for this procedure. Add examples in the Training tab, then try again.')
+      else if (data.generated) setGenerated(data.generated)
+      else if (data.has_template !== false) { var tmpl = templates[data.procedure_key]; setGenerated(tmpl ? fillTemplate(tmpl.template, data.variables || {}, shared) : 'No template found.') }
     } catch(e) { setParseError(e.message) }
     setProcessing(false)
   }
@@ -134,7 +145,6 @@ export default function IRApp() {
 
   var handleLogout = async function() { await fetch('/api/logout', { method: 'POST' }); router.push('/login') }
 
-  // Training helpers
   var getAllProcedures = function() {
     var all = {}
     Object.entries(templates).forEach(function(e) { all[e[0]] = { name: e[1].name, has_template: true } })
@@ -144,11 +154,13 @@ export default function IRApp() {
 
   var saveTrainingExample = function() {
     if (!trainingProc || !newTag || !newRaw || !newIdeal) return
-    var current = training[trainingProc] || { name: getAllProcedures()[trainingProc]?.name || trainingProc, high_variability: HIGH_VAR_DEFAULTS.indexOf(trainingProc) !== -1, examples: [] }
+    var allProcs = getAllProcedures()
+    var current = training[trainingProc] || { name: allProcs[trainingProc] ? allProcs[trainingProc].name : trainingProc, high_variability: HIGH_VAR_DEFAULTS.indexOf(trainingProc) !== -1, examples: [] }
     var ex = { id: Date.now().toString(), technique_tag: newTag, raw_note: newRaw, ideal_dictation: newIdeal }
     var updated = Object.assign({}, training)
     updated[trainingProc] = Object.assign({}, current, { examples: (current.examples || []).concat([ex]) })
-    setTraining(updated); saveData({ training: updated })
+    setTraining(updated)
+    saveData({ training: updated }, showSaved)
     setNewTag(''); setNewRaw(''); setNewIdeal(''); setShowAddEx(false)
   }
 
@@ -156,14 +168,14 @@ export default function IRApp() {
     var current = training[procKey]; if (!current) return
     var updated = Object.assign({}, training)
     updated[procKey] = Object.assign({}, current, { examples: current.examples.filter(function(e) { return e.id !== exId }) })
-    setTraining(updated); saveData({ training: updated })
+    setTraining(updated); saveData({ training: updated }, showSaved)
   }
 
   var toggleHighVar = function(procKey) {
     var current = training[procKey] || { examples: [] }
     var updated = Object.assign({}, training)
     updated[procKey] = Object.assign({}, current, { high_variability: !current.high_variability })
-    setTraining(updated); saveData({ training: updated })
+    setTraining(updated); saveData({ training: updated }, showSaved)
   }
 
   var addNewProc = function() {
@@ -171,19 +183,16 @@ export default function IRApp() {
     var key = newProcName.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')
     var updated = Object.assign({}, training)
     updated[key] = { name: newProcName.trim(), high_variability: false, has_template: false, examples: [] }
-    setTraining(updated); saveData({ training: updated })
+    setTraining(updated); saveData({ training: updated }, showSaved)
     setTrainingProc(key); setNewProcName(''); setShowAddProc(false)
   }
 
   var deleteTrainingProc = function(key) {
     if (!confirm('Delete all training examples for this procedure?')) return
-    var updated = Object.assign({}, training)
-    delete updated[key]
-    setTraining(updated); saveData({ training: updated })
+    var updated = Object.assign({}, training); delete updated[key]
+    setTraining(updated); saveData({ training: updated }, showSaved)
     if (trainingProc === key) setTrainingProc('')
   }
-
-  if (!loaded) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><p style={{ color: '#6b7280' }}>Loading...</p></div>
 
   var inp = { width: '100%', border: '1px solid #d1d5db', borderRadius: 6, padding: '8px 12px', fontSize: 13, marginBottom: 8, outline: 'none', background: '#fff' }
   var ta = Object.assign({}, inp, { fontFamily: 'Courier New,monospace', fontSize: 12, resize: 'vertical', lineHeight: 1.7 })
@@ -199,7 +208,6 @@ export default function IRApp() {
     { key: 'shared', label: 'Shared Text' },
     { key: 'settings', label: 'Settings' },
   ]
-
   var navBtnBase = { border: 'none', fontSize: 13, padding: '6px 12px', borderRadius: 6, cursor: 'pointer' }
 
   function TopBar() {
@@ -243,7 +251,7 @@ export default function IRApp() {
                   {refining ? 'Refining...' : 'Refine with My Style'}
                 </button>
               )}
-              {detectedProc && <div style={{ marginTop: 8, padding: '7px 12px', background: '#dcfce7', borderRadius: 8, fontSize: 12, color: '#15803d' }}>Detected: {detectedProc} {!hasTemplate && <span style={{ color: '#7c3aed' }}>(training-only)</span>}</div>}
+              {detectedProc && <div style={{ marginTop: 8, padding: '7px 12px', background: '#dcfce7', borderRadius: 8, fontSize: 12, color: '#15803d' }}>Detected: {detectedProc}{!hasTemplate && <span style={{ color: '#7c3aed' }}> (training-only)</span>}</div>}
               {refinedWith > 0 && <div style={{ marginTop: 6, padding: '7px 12px', background: '#ede9fe', borderRadius: 8, fontSize: 12, color: '#7c3aed' }}>Style applied from {refinedWith} example{refinedWith > 1 ? 's' : ''}</div>}
               {parseError && <div style={{ marginTop: 8, padding: '7px 12px', background: '#fef2f2', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>{parseError}</div>}
             </div>
@@ -270,7 +278,7 @@ export default function IRApp() {
               ? <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}><HighlightedNote text={generated} /></div>
               : <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
                   <div style={{ fontSize: 48, opacity: 0.2 }}>📄</div>
-                  <p style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>Paste a procedure note and click Generate. Works for all procedures — template-based and training-only.</p>
+                  <p style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>Paste a procedure note and click Generate. Works for template-based and training-only procedures.</p>
                 </div>
             }
           </div>
@@ -281,27 +289,35 @@ export default function IRApp() {
 
   if (view === 'training') {
     var allProcs = getAllProcedures()
-    var selTraining = trainingProc ? (training[trainingProc] || { name: allProcs[trainingProc]?.name, high_variability: HIGH_VAR_DEFAULTS.indexOf(trainingProc) !== -1, examples: [] }) : null
+    var selTraining = trainingProc ? (training[trainingProc] || { name: allProcs[trainingProc] ? allProcs[trainingProc].name : trainingProc, high_variability: HIGH_VAR_DEFAULTS.indexOf(trainingProc) !== -1, examples: [] }) : null
     var canAdd = selTraining && (selTraining.high_variability || (selTraining.examples || []).length < 5)
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#fff' }}>
         <TopBar />
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
-          <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid #e5e7eb', overflowY: 'auto', background: '#f9fafb' }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ width: 260, flexShrink: 0, borderRight: '1px solid #e5e7eb', overflowY: 'auto', background: '#f9fafb', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Procedure Library</span>
-              <button onClick={function() { setShowAddProc(!showAddProc) }} style={{ fontSize: 11, padding: '3px 8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>+ New</button>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={loadData} disabled={syncing} title="Reload from database" style={{ fontSize: 11, padding: '3px 8px', background: syncing ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>
+                  {syncing ? '...' : '↻ Sync'}
+                </button>
+                <button onClick={function() { setShowAddProc(!showAddProc) }} style={{ fontSize: 11, padding: '3px 8px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' }}>+ New</button>
+              </div>
             </div>
+            {saveStatus === 'saved' && <div style={{ padding: '6px 16px', background: '#dcfce7', fontSize: 11, color: '#15803d', textAlign: 'center' }}>✓ Saved to database</div>}
+            {saveStatus === 'error' && <div style={{ padding: '6px 16px', background: '#fef2f2', fontSize: 11, color: '#dc2626', textAlign: 'center' }}>⚠ Save failed — check connection</div>}
             {showAddProc && (
               <div style={{ padding: '10px 12px', borderBottom: '1px solid #e5e7eb', background: '#fff' }}>
                 <input value={newProcName} onChange={function(e) { setNewProcName(e.target.value) }} placeholder="Procedure name" style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: 5, padding: '6px 8px', fontSize: 12, outline: 'none', marginBottom: 6 }} onKeyDown={function(e) { if (e.key === 'Enter') addNewProc() }} />
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <button onClick={addNewProc} style={{ flex: 1, padding: '5px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Add</button>
-                  <button onClick={function() { setShowAddProc(false); setNewProcName('') }} style={{ flex: 1, padding: '5px', border: '1px solid #d1d5db', borderRadius: 4, background: 'transparent', cursor: 'pointer', fontSize: 11 }}>Cancel</button>
+                  <button onClick={addNewProc} style={{ flex: 1, padding: 5, background: '#2563eb', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}>Add</button>
+                  <button onClick={function() { setShowAddProc(false); setNewProcName('') }} style={{ flex: 1, padding: 5, border: '1px solid #d1d5db', borderRadius: 4, background: 'transparent', cursor: 'pointer', fontSize: 11 }}>Cancel</button>
                 </div>
               </div>
             )}
-            <div style={{ padding: '8px 0' }}>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              {Object.keys(allProcs).length === 0 && <div style={{ padding: 16, fontSize: 12, color: '#9ca3af' }}>No procedures yet. Click ↻ Sync or + New.</div>}
               {Object.entries(allProcs).map(function(e) {
                 var k = e[0]; var p = e[1]
                 var exCount = training[k] ? (training[k].examples || []).length : 0
@@ -310,7 +326,7 @@ export default function IRApp() {
                     style={{ padding: '9px 16px', cursor: 'pointer', background: trainingProc === k ? '#eff6ff' : 'transparent', borderLeft: trainingProc === k ? '3px solid #2563eb' : '3px solid transparent' }}>
                     <div style={{ fontSize: 13, color: '#111', fontWeight: trainingProc === k ? 600 : 400 }}>{p.name}</div>
                     <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
-                      {exCount} example{exCount !== 1 ? 's' : ''} {!p.has_template && <span style={{ color: '#7c3aed' }}>· training-only</span>}
+                      {exCount} example{exCount !== 1 ? 's' : ''}{!p.has_template && <span style={{ color: '#7c3aed' }}> · training-only</span>}
                     </div>
                   </div>
                 )
@@ -323,16 +339,17 @@ export default function IRApp() {
                 <div style={{ fontSize: 40, marginBottom: 12 }}>🏥</div>
                 <p style={{ fontSize: 14 }}>Select a procedure from the list to manage training examples.</p>
                 <p style={{ fontSize: 13, marginTop: 8 }}>Click + New to add any procedure not in the list.</p>
+                <p style={{ fontSize: 12, marginTop: 8, color: '#d1d5db' }}>Total procedures: {Object.keys(allProcs).length} · Training-only: {Object.values(allProcs).filter(function(p) { return !p.has_template }).length}</p>
               </div>
             )}
             {trainingProc && selTraining && (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                   <div>
-                    <h3 style={{ fontSize: 18, fontWeight: 600 }}>{allProcs[trainingProc]?.name || trainingProc}</h3>
+                    <h3 style={{ fontSize: 18, fontWeight: 600 }}>{allProcs[trainingProc] ? allProcs[trainingProc].name : trainingProc}</h3>
                     <p style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
                       {(selTraining.examples || []).length} example{(selTraining.examples || []).length !== 1 ? 's' : ''} · {selTraining.high_variability ? 'Unlimited capacity' : 'Up to 5 examples'}
-                      {!allProcs[trainingProc]?.has_template && <span style={{ color: '#7c3aed', marginLeft: 6 }}>· Training-only procedure</span>}
+                      {allProcs[trainingProc] && !allProcs[trainingProc].has_template && <span style={{ color: '#7c3aed', marginLeft: 6 }}>· Training-only</span>}
                     </p>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -342,7 +359,7 @@ export default function IRApp() {
                         <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: selTraining.high_variability ? 23 : 3, transition: 'left 0.15s' }} />
                       </button>
                     </div>
-                    {!allProcs[trainingProc]?.has_template && <button onClick={function() { deleteTrainingProc(trainingProc) }} style={Object.assign({}, btnD, { fontSize: 12 })}>Delete Procedure</button>}
+                    {allProcs[trainingProc] && !allProcs[trainingProc].has_template && <button onClick={function() { deleteTrainingProc(trainingProc) }} style={Object.assign({}, btnD, { fontSize: 12 })}>Delete Procedure</button>}
                   </div>
                 </div>
                 {(selTraining.examples || []).length === 0 && <div style={{ textAlign: 'center', padding: '24px 0', color: '#9ca3af', fontSize: 13 }}>No examples yet. Click Add Example to get started.</div>}
@@ -352,7 +369,7 @@ export default function IRApp() {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div>
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{ex.technique_tag || 'No tag'}</span>
-                          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>{(ex.raw_note || '').length} chars raw</span>
+                          <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>{(ex.raw_note || '').length} chars</span>
                         </div>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button onClick={function() { setExpandedEx(expandedEx === ex.id ? null : ex.id) }} style={btnS}>{expandedEx === ex.id ? 'Collapse' : 'View'}</button>
@@ -370,20 +387,16 @@ export default function IRApp() {
                     </div>
                   )
                 })}
-                {!showAddEx && canAdd && (
-                  <button onClick={function() { setShowAddEx(true) }} style={Object.assign({}, btnP, { marginTop: 8 })}>+ Add Example</button>
-                )}
-                {!canAdd && !selTraining.high_variability && (
-                  <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 8 }}>5-example limit reached. Enable High-variability for unlimited examples.</div>
-                )}
+                {!showAddEx && canAdd && <button onClick={function() { setShowAddEx(true) }} style={Object.assign({}, btnP, { marginTop: 8 })}>+ Add Example</button>}
+                {!canAdd && !selTraining.high_variability && <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 8 }}>5-example limit reached. Enable High-variability for unlimited examples.</div>}
                 {showAddEx && (
                   <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: 12, padding: 16, marginTop: 12 }}>
                     <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>New Training Example</h4>
                     <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Technique Tag</label>
-                    <input value={newTag} onChange={function(e) { setNewTag(e.target.value) }} placeholder="e.g. SFA atherectomy + tibial PTA, or bilateral iliac stent" style={inp} />
-                    <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Raw Note (what you paste in)</label>
+                    <input value={newTag} onChange={function(e) { setNewTag(e.target.value) }} placeholder="e.g. SFA atherectomy + tibial PTA" style={inp} />
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>Raw Note</label>
                     <textarea value={newRaw} onChange={function(e) { setNewRaw(e.target.value) }} placeholder="Paste a real raw procedure note here..." style={Object.assign({}, ta, { minHeight: 140 })} />
-                    <label style={{ fontSize: 12, fontWeight: 600, color: '#15803d', display: 'block', marginBottom: 4 }}>Ideal Dictation (the output you want)</label>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: '#15803d', display: 'block', marginBottom: 4 }}>Ideal Dictation</label>
                     <textarea value={newIdeal} onChange={function(e) { setNewIdeal(e.target.value) }} placeholder="Paste your ideal finished dictation here..." style={Object.assign({}, ta, { minHeight: 200, background: '#f0fdf4', borderColor: '#bbf7d0' })} />
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={saveTrainingExample} disabled={!newTag || !newRaw || !newIdeal} style={Object.assign({}, btnP, { opacity: !newTag || !newRaw || !newIdeal ? 0.5 : 1 })}>Save Example</button>
@@ -405,7 +418,7 @@ export default function IRApp() {
         <TopBar />
         <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}>
           <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>Procedure Templates</h2>
-          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Structured templates for common procedures. Use double curly braces for variables and shared blocks.</p>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Structured templates for common procedures.</p>
           {Object.entries(localTemplates).map(function(e) {
             var k = e[0]; var t = e[1]
             return (
@@ -414,16 +427,16 @@ export default function IRApp() {
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{t.name}</span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={function() { setEditTmpl(editTmpl === k ? null : k) }} style={btnS}>{editTmpl === k ? 'Close' : 'Edit'}</button>
-                    <button onClick={function() { var u = Object.assign({}, localTemplates); delete u[k]; setLocalTemplates(u); setTemplates(u); saveData({ templates: u }); if (editTmpl === k) setEditTmpl(null) }} style={btnD}>Delete</button>
+                    <button onClick={function() { var u = Object.assign({}, localTemplates); delete u[k]; setLocalTemplates(u); setTemplates(u); saveData({ templates: u }, showSaved); if (editTmpl === k) setEditTmpl(null) }} style={btnD}>Delete</button>
                   </div>
                 </div>
                 <div style={{ marginBottom: 8 }}>{(t.keywords || []).map(function(kw) { return <span key={kw} style={{ fontSize: 10, padding: '3px 8px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 99, color: '#6b7280', marginRight: 4, display: 'inline-block' }}>{kw}</span> })}</div>
                 {editTmpl === k && (
                   <div>
-                    <input defaultValue={(t.keywords || []).join(', ')} placeholder="Keywords (comma separated)" onChange={function(ev) { setLocalTemplates(function(prev) { var u = Object.assign({}, prev); u[k] = Object.assign({}, prev[k], { keywords: ev.target.value.split(',').map(function(x) { return x.trim() }).filter(Boolean) }); return u }) }} style={inp} />
+                    <input defaultValue={(t.keywords || []).join(', ')} placeholder="Keywords" onChange={function(ev) { setLocalTemplates(function(prev) { var u = Object.assign({}, prev); u[k] = Object.assign({}, prev[k], { keywords: ev.target.value.split(',').map(function(x) { return x.trim() }).filter(Boolean) }); return u }) }} style={inp} />
                     <textarea value={localTemplates[k].template} onChange={function(ev) { setLocalTemplates(function(prev) { var u = Object.assign({}, prev); u[k] = Object.assign({}, prev[k], { template: ev.target.value }); return u }) }} style={Object.assign({}, ta, { minHeight: 300 })} />
                     <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={function() { setTemplates(localTemplates); saveData({ templates: localTemplates }); setEditTmpl(null) }} style={btnP}>Save</button>
+                      <button onClick={function() { setTemplates(localTemplates); saveData({ templates: localTemplates }, showSaved); setEditTmpl(null) }} style={btnP}>Save</button>
                       <button onClick={function() { setEditTmpl(null) }} style={btnS}>Cancel</button>
                     </div>
                   </div>
@@ -436,8 +449,15 @@ export default function IRApp() {
             <input placeholder="Key (no spaces, e.g. ivc_filter)" value={newTmplKey} onChange={function(e) { setNewTmplKey(e.target.value.replace(/\s/g, '_').toLowerCase()) }} style={inp} />
             <input placeholder="Procedure name" value={newTmplName} onChange={function(e) { setNewTmplName(e.target.value) }} style={inp} />
             <input placeholder="Keywords (comma separated)" value={newTmplKw} onChange={function(e) { setNewTmplKw(e.target.value) }} style={inp} />
-            <textarea placeholder="Paste your baseline template text here..." value={newTmplText} onChange={function(e) { setNewTmplText(e.target.value) }} style={Object.assign({}, ta, { minHeight: 160 })} />
-            <button onClick={function() { if (newTmplKey && newTmplName && newTmplText) { var u = Object.assign({}, localTemplates); u[newTmplKey] = { name: newTmplName, keywords: newTmplKw.split(',').map(function(x) { return x.trim() }).filter(Boolean), template: newTmplText }; setLocalTemplates(u); setTemplates(u); saveData({ templates: u }); setNewTmplKey(''); setNewTmplName(''); setNewTmplKw(''); setNewTmplText('') } }} style={btnP}>Add Template</button>
+            <textarea placeholder="Paste template text here..." value={newTmplText} onChange={function(e) { setNewTmplText(e.target.value) }} style={Object.assign({}, ta, { minHeight: 160 })} />
+            <button onClick={function() {
+              if (newTmplKey && newTmplName && newTmplText) {
+                var u = Object.assign({}, localTemplates)
+                u[newTmplKey] = { name: newTmplName, keywords: newTmplKw.split(',').map(function(x) { return x.trim() }).filter(Boolean), template: newTmplText }
+                setLocalTemplates(u); setTemplates(u); saveData({ templates: u }, showSaved)
+                setNewTmplKey(''); setNewTmplName(''); setNewTmplKw(''); setNewTmplText('')
+              }
+            }} style={btnP}>Add Template</button>
           </div>
         </div>
       </div>
@@ -450,7 +470,7 @@ export default function IRApp() {
         <TopBar />
         <div style={{ flex: 1, overflowY: 'auto', padding: 28 }}>
           <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>Shared Text Components</h2>
-          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Edit once — updates apply to every template and are injected verbatim during style refinement.</p>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 20 }}>Edit once — updates apply to every template automatically.</p>
           {Object.entries(localShared).map(function(e) {
             var k = e[0]; var v = e[1]
             return (
@@ -459,7 +479,7 @@ export default function IRApp() {
                   <span style={{ fontSize: 14, fontWeight: 600 }}>{k.replace(/_/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase() })}</span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={function() { setEditShared(editShared === k ? null : k) }} style={btnS}>{editShared === k ? 'Close' : 'Edit'}</button>
-                    <button onClick={function() { var u = Object.assign({}, localShared); delete u[k]; setLocalShared(u); setShared(u); saveData({ shared: u }); if (editShared === k) setEditShared(null) }} style={btnD}>Delete</button>
+                    <button onClick={function() { var u = Object.assign({}, localShared); delete u[k]; setLocalShared(u); setShared(u); saveData({ shared: u }, showSaved); if (editShared === k) setEditShared(null) }} style={btnD}>Delete</button>
                   </div>
                 </div>
                 <code style={{ fontSize: 11, color: '#6b7280', display: 'block', marginBottom: 8 }}>shared:{k}</code>
@@ -467,7 +487,7 @@ export default function IRApp() {
                   ? <div>
                       <textarea value={localShared[k]} onChange={function(ev) { setLocalShared(function(prev) { return Object.assign({}, prev, { [k]: ev.target.value }) }) }} style={Object.assign({}, ta, { minHeight: 120 })} />
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={function() { setShared(localShared); saveData({ shared: localShared }); setEditShared(null) }} style={btnP}>Save</button>
+                        <button onClick={function() { setShared(localShared); saveData({ shared: localShared }, showSaved); setEditShared(null) }} style={btnP}>Save</button>
                         <button onClick={function() { setEditShared(null) }} style={btnS}>Cancel</button>
                       </div>
                     </div>
@@ -478,8 +498,13 @@ export default function IRApp() {
           })}
           <div style={{ background: '#f9fafb', border: '1px dashed #d1d5db', borderRadius: 12, padding: 16, marginTop: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Add Shared Component</h4>
-            <input placeholder="Key name (no spaces, e.g. post_procedure_care)" value={newSharedKey} onChange={function(e) { setNewSharedKey(e.target.value.replace(/\s/g, '_').toLowerCase()) }} style={inp} />
-            <button onClick={function() { if (newSharedKey) { var u = Object.assign({}, localShared); u[newSharedKey] = 'Enter shared text here...'; setLocalShared(u); setShared(u); saveData({ shared: u }); setEditShared(newSharedKey); setNewSharedKey('') } }} style={btnP}>Add Component</button>
+            <input placeholder="Key name (no spaces)" value={newSharedKey} onChange={function(e) { setNewSharedKey(e.target.value.replace(/\s/g, '_').toLowerCase()) }} style={inp} />
+            <button onClick={function() {
+              if (newSharedKey) {
+                var u = Object.assign({}, localShared); u[newSharedKey] = 'Enter shared text here...'
+                setLocalShared(u); setShared(u); saveData({ shared: u }, showSaved); setEditShared(newSharedKey); setNewSharedKey('')
+              }
+            }} style={btnP}>Add Component</button>
           </div>
         </div>
       </div>
@@ -493,14 +518,14 @@ export default function IRApp() {
         <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 20 }}>Settings</h2>
         <div style={Object.assign({}, card, { marginBottom: 16 })}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Change Password</h4>
-          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>Admin password: update ADMIN_PASSWORD in Vercel dashboard. User passwords: managed in the Admin page.</p>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>Update ADMIN_PASSWORD in Vercel dashboard → Settings → Environment Variables → Redeploy.</p>
           {pwMsg && <p style={{ fontSize: 12, color: '#16a34a', marginBottom: 8 }}>{pwMsg}</p>}
-          <button onClick={function() { setPwMsg('Go to Vercel dashboard, Settings, Environment Variables, update ADMIN_PASSWORD, then Redeploy.') }} style={btnP}>Show Instructions</button>
+          <button onClick={function() { setPwMsg('Go to Vercel dashboard → Settings → Environment Variables → update ADMIN_PASSWORD → Redeploy.') }} style={btnP}>Show Instructions</button>
         </div>
         <div style={card}>
           <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Reset to Defaults</h4>
-          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>Restore all built-in templates and shared text. Training examples and users are not affected.</p>
-          <button onClick={function() { setShared(DEFAULT_SHARED); setLocalShared(DEFAULT_SHARED); setTemplates(DEFAULT_TEMPLATES); setLocalTemplates(DEFAULT_TEMPLATES); saveData({ shared: DEFAULT_SHARED, templates: DEFAULT_TEMPLATES }) }} style={Object.assign({}, btnD, { padding: '7px 14px' })}>Reset Templates and Shared Text</button>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>Restore built-in templates and shared text. Training examples and users are not affected.</p>
+          <button onClick={function() { setShared(DEFAULT_SHARED); setLocalShared(DEFAULT_SHARED); setTemplates(DEFAULT_TEMPLATES); setLocalTemplates(DEFAULT_TEMPLATES); saveData({ shared: DEFAULT_SHARED, templates: DEFAULT_TEMPLATES }, showSaved) }} style={Object.assign({}, btnD, { padding: '7px 14px' })}>Reset Templates and Shared Text</button>
         </div>
       </div>
     </div>
