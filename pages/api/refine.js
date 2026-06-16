@@ -64,7 +64,7 @@ export default async function handler(req, res) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514', max_tokens: 3000,
+      model: 'claude-sonnet-4-5-20250929', max_tokens: 3000,
       system: 'Rewrite IR procedure notes to match the physician\'s exact style. Use protected text verbatim. SMART OMISSION: omit any section not supported by the note content (fellows, residents, APPs if not mentioned; contrast volume if not recorded; etc.).' + hiddenNote,
       messages: [{ role: 'user', content: 'Rewrite to match my style.\n\nMY STYLE:\n' + exText + '\n\nPROTECTED TEXT (verbatim):\n' + sharedText + '\n\nNOTE TO REWRITE:\n' + noteText }]
     })
