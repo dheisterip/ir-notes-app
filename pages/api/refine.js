@@ -1,5 +1,6 @@
 import { getTraining, getShared, getUserPrefs, logUsage, checkAndSendAlert } from '../../lib/storage'
 import { getUserFromRequest } from '../../lib/auth'
+import { compareMeasurements } from '../../lib/measurements'
 
 var REQUIRED_FIELDS = ['date','physician','patient_name','mrn','indication','complications','impression']
 
@@ -36,6 +37,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end()
   var noteText = req.body.note_text
   var procedureKey = req.body.procedure_key
+  var originalDictation = req.body.original_dictation
   if (!noteText || !procedureKey) return res.status(400).json({ error: 'Missing fields' })
 
   var user = await getUserFromRequest(req)
@@ -44,9 +46,15 @@ export default async function handler(req, res) {
   var results = await Promise.all([getTraining(), getShared(), getUserPrefs(uid)])
   var training = results[0]; var shared = results[1]; var userPrefs = results[2]
 
+  function measurementWarnings(generated) {
+    if (!originalDictation) return []
+    var result = compareMeasurements(originalDictation, generated, Object.values(shared || {}).join('\n'))
+    return result.missing.concat(result.unsourced)
+  }
+
   var procTraining = training[procedureKey]
   if (!procTraining || !procTraining.examples || procTraining.examples.length === 0) {
-    return res.json({ note: noteText, used_training: false })
+    return res.json({ note: noteText, used_training: false, measurementWarnings: measurementWarnings(noteText) })
   }
 
   var scored = procTraining.examples.map(function(ex) { return { ex: ex, score: scoreSimilarity(noteText, ex.technique_tag) } })
@@ -76,5 +84,5 @@ export default async function handler(req, res) {
   text = smartOmit(text, hiddenFields)
   var cost = await logUsage('refine', procedureKey, (aiData.usage && aiData.usage.input_tokens) || 0, (aiData.usage && aiData.usage.output_tokens) || 0)
   await checkAndSendAlert(cost)
-  return res.json({ note: text, used_training: true, examples_used: top.length })
+  return res.json({ note: text, used_training: true, examples_used: top.length, measurementWarnings: measurementWarnings(text) })
 }

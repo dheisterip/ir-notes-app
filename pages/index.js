@@ -38,6 +38,7 @@ export default function IRApp() {
   var [processing, setProcessing] = useState(false)
   var [refining, setRefining] = useState(false)
   var [generated, setGenerated] = useState('')
+  var [measurementWarnings, setMeasurementWarnings] = useState([])
   var [detectedProc, setDetectedProc] = useState('')
   var [hasTemplate, setHasTemplate] = useState(true)
   var [vars, setVars] = useState({})
@@ -147,7 +148,7 @@ export default function IRApp() {
 
   var handleProcess = async function() {
     if (!note.trim()) return
-    setProcessing(true); setGenerated(''); setDetectedProc(''); setVars({}); setSelectedKey(''); setParseError(''); setRefinedWith(0); setHasTemplate(true)
+    setProcessing(true); setGenerated(''); setDetectedProc(''); setVars({}); setSelectedKey(''); setParseError(''); setRefinedWith(0); setHasTemplate(true); setMeasurementWarnings([])
     try {
       var res = await fetch('/api/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: note }) })
       var data = await res.json()
@@ -158,6 +159,7 @@ export default function IRApp() {
       setVars(data.variables || {})
       if (data.no_examples) setGenerated('No training examples found for this procedure. Add examples in the Training tab.')
       else if (data.generated) setGenerated(data.generated)
+      setMeasurementWarnings(data.measurementWarnings || [])
     } catch(e) { setParseError(e.message) }
     setProcessing(false)
   }
@@ -166,9 +168,9 @@ export default function IRApp() {
     if (!generated || !selectedKey) return
     setRefining(true)
     try {
-      var res = await fetch('/api/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note_text: generated, procedure_key: selectedKey }) })
+      var res = await fetch('/api/refine', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note_text: generated, procedure_key: selectedKey, original_dictation: note }) })
       var data = await res.json()
-      if (data.note) { setGenerated(data.note); setRefinedWith(data.examples_used || 0) }
+      if (data.note) { setGenerated(data.note); setRefinedWith(data.examples_used || 0); setMeasurementWarnings(data.measurementWarnings || []) }
     } catch(e) { console.error(e) }
     setRefining(false)
   }
@@ -303,6 +305,23 @@ export default function IRApp() {
               <span style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', textTransform: 'uppercase' }}>Generated Note</span>
               {generated && <button onClick={function() { navigator.clipboard.writeText(generated) }} style={{ fontSize: 12, padding: '5px 10px', background: 'transparent', border: '1px solid #d1d5db', borderRadius: 6, cursor: 'pointer' }}>Copy</button>}
             </div>
+            {measurementWarnings.length > 0 && (
+              <div style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a', padding: '10px 24px' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', textTransform: 'uppercase', marginBottom: 6 }}>
+                  Measurement check — {measurementWarnings.length} item{measurementWarnings.length !== 1 ? 's' : ''} to review
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {measurementWarnings.map(function(w, i) {
+                    return (
+                      <li key={i} style={{ fontSize: 12.5, color: w.severity === 'high' ? '#991b1b' : '#92400e', marginBottom: 4 }}>
+                        <strong>{w.kind === 'missing' ? 'Missing' : 'Unsourced'}:</strong> {w.message}
+                        <span style={{ color: '#78716c', marginLeft: 6 }}>&ldquo;{w.context}&rdquo;</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
             {generated
               ? <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}><HighlightedNote text={generated} /></div>
               : <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>

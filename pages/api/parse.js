@@ -1,5 +1,11 @@
 import { getEffectiveTemplates, getTraining, getShared, getUserPrefs, logUsage, checkAndSendAlert } from '../../lib/storage'
 import { getUserFromRequest } from '../../lib/auth'
+import { compareMeasurements } from '../../lib/measurements'
+
+function measurementWarnings(dictation, generated, shared) {
+  var result = compareMeasurements(dictation, generated, Object.values(shared || {}).join('\n'))
+  return result.missing.concat(result.unsourced)
+}
 
 var REQUIRED_FIELDS = ['date','physician','patient_name','mrn','indication','complications','impression','procedure_description']
 var MODEL = 'claude-sonnet-4-5-20250929'
@@ -89,7 +95,7 @@ export default async function handler(req, res) {
     if (!procTraining || !procTraining.examples || procTraining.examples.length === 0) {
       cost = await logUsage('parse', parsed.procedure_key, inTok, outTok)
       await checkAndSendAlert(cost)
-      return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: {}, has_template: false, generated: '', no_examples: true })
+      return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: {}, has_template: false, generated: '', no_examples: true, measurementWarnings: [] })
     }
 
     var examples = procTraining.examples.slice(0, 5)
@@ -120,7 +126,7 @@ export default async function handler(req, res) {
     var genOut = (genData.usage && genData.usage.output_tokens) || 0
     cost = await logUsage('parse', parsed.procedure_key, inTok + genIn, outTok + genOut)
     await checkAndSendAlert(cost)
-    return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: {}, has_template: false, generated: generated })
+    return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: {}, has_template: false, generated: generated, measurementWarnings: measurementWarnings(note, generated, shared) })
   }
 
   var tmpl = templates[parsed.procedure_key]
@@ -128,5 +134,5 @@ export default async function handler(req, res) {
   filled = smartOmit(filled, hiddenFields)
   cost = await logUsage('parse', parsed.procedure_key, inTok, outTok)
   await checkAndSendAlert(cost)
-  return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: parsed.variables || {}, has_template: true, generated: filled })
+  return res.json({ procedure_key: parsed.procedure_key, procedure_name: parsed.procedure_name, variables: parsed.variables || {}, has_template: true, generated: filled, measurementWarnings: measurementWarnings(note, filled, shared) })
 }
