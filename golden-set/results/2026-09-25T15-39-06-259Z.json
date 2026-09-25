@@ -1,0 +1,58 @@
+{
+  "summary": {
+    "ranAt": "2026-09-25T15:39:06.259Z",
+    "totalCases": 8,
+    "authOk": false,
+    "authReason": "Incorrect password",
+    "byStatus": {
+      "skipped_empty_case": 8
+    },
+    "scoredCases": 0,
+    "avgWordOverlapPct": null,
+    "avgEditDistancePct": null,
+    "totalMeasurementMissing": 0,
+    "totalMeasurementUnsourced": 0
+  },
+  "cases": [
+    {
+      "id": "gs-01",
+      "procedureVariant": "iliac_angioplasty",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-02",
+      "procedureVariant": "iliac_angioplasty_with_stent",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-03",
+      "procedureVariant": "fem_pop_angioplasty",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-04",
+      "procedureVariant": "fem_pop_angioplasty_with_atherectomy",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-05",
+      "procedureVariant": "tibial_angioplasty",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-06",
+      "procedureVariant": "cvc_placement",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-07",
+      "procedureVariant": "angioplasty_with_closure_device",
+      "status": "skipped_empty_case"
+    },
+    {
+      "id": "gs-08",
+      "procedureVariant": "thrombolysis",
+      "status": "skipped_empty_case"
+    }
+  ]
+}

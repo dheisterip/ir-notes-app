@@ -1,0 +1,58 @@
+[
+  {
+    "id": "gs-01",
+    "procedureVariant": "iliac_angioplasty",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-02",
+    "procedureVariant": "iliac_angioplasty_with_stent",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-03",
+    "procedureVariant": "fem_pop_angioplasty",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-04",
+    "procedureVariant": "fem_pop_angioplasty_with_atherectomy",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-05",
+    "procedureVariant": "tibial_angioplasty",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-06",
+    "procedureVariant": "cvc_placement",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-07",
+    "procedureVariant": "angioplasty_with_closure_device",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  },
+  {
+    "id": "gs-08",
+    "procedureVariant": "thrombolysis",
+    "dictation": "",
+    "finalNote": "",
+    "notes": ""
+  }
+]

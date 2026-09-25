@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "score-golden": "node scripts/score-golden-set.js"
   },
   "dependencies": {
     "next": "^14.2.0",
