@@ -29,6 +29,22 @@ Main features:
 - **Environment variables must be bare values**, never `KEY=VALUE` strings. This broke Upstash and the Anthropic key silently before. If something fails with no error, check env var format first.
 - A weekly Vercel cron pings Upstash to keep it awake. Don't remove it.
 
+## Environment variable names
+
+Confirmed via `vercel env ls` against the real project (all 7 are set as Secret type on
+Production and Preview — Secret-type values can't be pulled by `vercel env pull`, only listed by
+name; get real values from the Vercel dashboard, not the CLI):
+
+- `ADMIN_PASSWORD` — the login password. **Not `SITE_PASSWORD`** — easy to guess wrong when
+  hand-typing `.env.local`, and the app fails with a plain "Incorrect password" (no hint that the
+  var name itself is wrong) if it's missing.
+- `JWT_SECRET`
+- `ANTHROPIC_API_KEY`
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`
+- `ALERT_EMAIL`
+- `RESEND_API_KEY`
+
 ## Working rules
 
 - Before editing, read the relevant routes and helpers and summarize the plan. For multi-file changes, wait for approval.
