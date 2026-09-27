@@ -39,6 +39,8 @@ export default function IRApp() {
   var [refining, setRefining] = useState(false)
   var [generated, setGenerated] = useState('')
   var [measurementWarnings, setMeasurementWarnings] = useState([])
+  var [retrieving, setRetrieving] = useState(false)
+  var [retrievalMatch, setRetrievalMatch] = useState(null)
   var [detectedProc, setDetectedProc] = useState('')
   var [hasTemplate, setHasTemplate] = useState(true)
   var [vars, setVars] = useState({})
@@ -148,7 +150,7 @@ export default function IRApp() {
 
   var handleProcess = async function() {
     if (!note.trim()) return
-    setProcessing(true); setGenerated(''); setDetectedProc(''); setVars({}); setSelectedKey(''); setParseError(''); setRefinedWith(0); setHasTemplate(true); setMeasurementWarnings([])
+    setProcessing(true); setGenerated(''); setDetectedProc(''); setVars({}); setSelectedKey(''); setParseError(''); setRefinedWith(0); setHasTemplate(true); setMeasurementWarnings([]); setRetrievalMatch(null)
     try {
       var res = await fetch('/api/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: note }) })
       var data = await res.json()
@@ -173,6 +175,20 @@ export default function IRApp() {
       if (data.note) { setGenerated(data.note); setRefinedWith(data.examples_used || 0); setMeasurementWarnings(data.measurementWarnings || []) }
     } catch(e) { console.error(e) }
     setRefining(false)
+  }
+
+  var handleRetrieve = async function() {
+    if (!note.trim() || !selectedKey) return
+    setRetrieving(true); setRetrievalMatch(null)
+    try {
+      var res = await fetch('/api/retrieve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note: note, procedure_key: selectedKey }) })
+      var data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Retrieval failed')
+      setGenerated(data.generated)
+      setMeasurementWarnings(data.measurementWarnings || [])
+      setRetrievalMatch({ score: data.matchScore, tag: data.matchedTechniqueTag, id: data.matchedExampleId })
+    } catch(e) { setParseError(e.message) }
+    setRetrieving(false)
   }
 
   var handleVarChange = function(k, v) {
@@ -278,12 +294,18 @@ export default function IRApp() {
                 {processing ? 'Processing...' : 'Generate Template'}
               </button>
               {generated && hasTrainingEx && hasTemplate && (
-                <button onClick={handleRefine} disabled={refining} style={{ width: '100%', padding: 10, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: refining ? 0.5 : 1 }}>
+                <button onClick={handleRefine} disabled={refining} style={{ width: '100%', padding: 10, background: '#7c3aed', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: refining ? 0.5 : 1, marginBottom: 8 }}>
                   {refining ? 'Refining...' : 'Refine with My Style'}
+                </button>
+              )}
+              {selectedKey && (
+                <button onClick={handleRetrieve} disabled={retrieving || !note.trim()} style={{ width: '100%', padding: 10, background: '#0d9488', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: retrieving || !note.trim() ? 0.5 : 1 }}>
+                  {retrieving ? 'Retrieving & editing...' : 'Generate via Nearest Note'}
                 </button>
               )}
               {detectedProc && <div style={{ marginTop: 8, padding: '7px 12px', background: '#dcfce7', borderRadius: 8, fontSize: 12, color: '#15803d' }}>Detected: {detectedProc}{!hasTemplate && <span style={{ color: '#7c3aed' }}> (training-only)</span>}</div>}
               {refinedWith > 0 && <div style={{ marginTop: 6, padding: '7px 12px', background: '#ede9fe', borderRadius: 8, fontSize: 12, color: '#7c3aed' }}>Style applied from {refinedWith} example{refinedWith > 1 ? 's' : ''}</div>}
+              {retrievalMatch && <div style={{ marginTop: 6, padding: '7px 12px', background: '#ccfbf1', borderRadius: 8, fontSize: 12, color: '#0f766e' }}>Edited from nearest prior note{retrievalMatch.tag ? ' (' + retrievalMatch.tag + ')' : ''} — match {Math.round(retrievalMatch.score * 100)}%</div>}
               {parseError && <div style={{ marginTop: 8, padding: '7px 12px', background: '#fef2f2', borderRadius: 8, fontSize: 12, color: '#dc2626' }}>{parseError}</div>}
             </div>
             {hasTemplate && filledVars.length > 0 && (

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node tests/measurements.test.js",
+    "test": "node tests/measurements.test.js && node tests/retrieval.test.js",
     "score-golden": "node scripts/score-golden-set.js"
   },
   "dependencies": {
